@@ -35,7 +35,6 @@ I hope you enjoy your Neovim journey,
 
 P.S. You can delete this when you're done too. It's your config now :)
 --]]
-
 -- Set <space> as the leader key
 -- See `:help mapleader`
 --  NOTE: Must happen before plugins are required (otherwise wrong leader will be used)
@@ -113,10 +112,10 @@ require('lazy').setup({
   },
 
   { -- Theme inspired by Atom
-    'navarasu/onedark.nvim',
+    'Mofiqul/dracula.nvim',
     priority = 1000,
     config = function()
-      vim.cmd.colorscheme 'onedark'
+      vim.cmd.colorscheme 'dracula'
     end,
   },
 
@@ -126,9 +125,9 @@ require('lazy').setup({
     opts = {
       options = {
         icons_enabled = false,
-        theme = 'onedark',
-        component_separators = '|',
-        section_separators = '',
+        theme = 'dracula-nvim',
+        component_separators = { left = '', right = '' },
+        section_separators = { left = '', right = '' },
       },
     },
   },
@@ -193,7 +192,7 @@ require('lazy').setup({
 -- See `:help vim.o`
 
 -- Set highlight on search
-vim.o.hlsearch = false
+vim.o.hlsearch = true
 
 -- Make line numbers default
 vim.wo.number = true
@@ -230,6 +229,15 @@ vim.o.completeopt = 'menuone,noselect'
 -- NOTE: You should make sure your terminal supports this
 vim.o.termguicolors = true
 
+-- backspace
+vim.o.backspace = 'indent,eol,start'
+
+-- solit windows
+vim.o.splitright = true
+vim.o.splitbelow = true
+
+vim.opt.iskeyword:append '-'
+
 -- [[ Basic Keymaps ]]
 
 -- Keymaps for better default experience
@@ -239,6 +247,27 @@ vim.keymap.set({ 'n', 'v' }, '<Space>', '<Nop>', { silent = true })
 -- Remap for dealing with word wrap
 vim.keymap.set('n', 'k', "v:count == 0 ? 'gk' : 'k'", { expr = true, silent = true })
 vim.keymap.set('n', 'j', "v:count == 0 ? 'gj' : 'j'", { expr = true, silent = true })
+
+vim.keymap.set('n', '<leader>xv', '<C-w>v', { desc = 'split window vertically' }) -- split window vertically
+vim.keymap.set('n', '<leader>xh', '<C-w>s', { desc = 'split window horizontally' }) -- split window horizontally
+vim.keymap.set('n', '<leader>xe', '<C-w>=', { desc = 'windows equal width' }) -- make split windows equal width
+vim.keymap.set('n', '<leader>xx', ':close<CR>', { desc = 'close window' }) -- close current split window
+
+vim.keymap.set('n', '<leader>to', ':tabnew<CR>', { desc = 'open tab' }) -- open new tab
+vim.keymap.set('n', '<leader>tx', ':tabclose<CR>', { desc = 'close tab' }) -- close current tab
+vim.keymap.set('n', '<leader>tn', ':tabn<CR>', { desc = 'next tab' }) -- go to next tab
+vim.keymap.set('n', '<leader>tp', ':tabp<CR>', { desc = 'prev tab' }) -- go to previous tab
+
+vim.keymap.set('n', '<leader>nh', ':nohl<CR>') -- cancel search
+vim.keymap.set('n', 'x', '"_x') -- character deletion doesn't copy into register
+
+vim.keymap.set('n', '<leader>+', '<C-a>') -- increment number
+vim.keymap.set('n', '<leader>-', '<C-x>') -- decrement number
+
+-- plugin keymaps
+
+-- vim-maximizer
+vim.keymap.set('n', '<leader>xm', ':MaximizerToggle<CR>')
 
 -- [[ Highlight on yank ]]
 -- See `:help vim.highlight.on_yank()`
@@ -288,13 +317,14 @@ vim.keymap.set('n', '<leader>sd', require('telescope.builtin').diagnostics, { de
 -- See `:help nvim-treesitter`
 require('nvim-treesitter.configs').setup {
   -- Add languages to be installed here that you want installed for treesitter
-  ensure_installed = { 'c', 'cpp', 'go', 'lua', 'python', 'rust', 'tsx', 'typescript', 'help', 'vim' },
+  ensure_installed = { 'c', 'cpp', 'go', 'lua', 'python', 'rust', 'tsx', 'typescript', 'help', 'vim', 'gitignore' },
 
   -- Autoinstall languages that are not installed. Defaults to false (but you can change for yourself!)
   auto_install = false,
 
   highlight = { enable = true },
   indent = { enable = true, disable = { 'python' } },
+  autotag = { enable = true },
   incremental_selection = {
     enable = true,
     keymaps = {
@@ -448,9 +478,22 @@ mason_lspconfig.setup_handlers {
   end,
 }
 
+mason_null_ls = require 'mason-null-ls'
+
+mason_null_ls.setup {
+  ensure_installed = {
+    'prettier',
+    'stylua',
+  },
+}
 -- nvim-cmp setup
 local cmp = require 'cmp'
 local luasnip = require 'luasnip'
+
+local lspkind_status, lspkind = pcall(require, 'lspkind')
+if not lspkind_status then
+  return
+end
 
 luasnip.config.setup {}
 
@@ -463,10 +506,13 @@ cmp.setup {
   mapping = cmp.mapping.preset.insert {
     ['<C-d>'] = cmp.mapping.scroll_docs(-4),
     ['<C-f>'] = cmp.mapping.scroll_docs(4),
-    ['<C-Space>'] = cmp.mapping.complete {},
+    ['<C-k>'] = cmp.mapping.select_prev_item(),
+    ['<C-j>'] = cmp.mapping.select_next_item(),
+    ['<C-Space>'] = cmp.mapping.complete {}, -- show suggestions
+    ['<C-e>'] = cmp.mapping.abort(), -- close completion
     ['<CR>'] = cmp.mapping.confirm {
       behavior = cmp.ConfirmBehavior.Replace,
-      select = true,
+      select = false, -- set to false to only confirm explicitly selected items
     },
     ['<Tab>'] = cmp.mapping(function(fallback)
       if cmp.visible() then
@@ -490,8 +536,90 @@ cmp.setup {
   sources = {
     { name = 'nvim_lsp' },
     { name = 'luasnip' },
+    { name = 'buffer' },
+    { name = 'path' },
+  },
+  enabled = function()
+    local in_prompt = vim.api.nvim_buf_get_option(0, 'buftype') == 'prompt'
+    if in_prompt then -- this will disable cmp in the Telescope window (taken from the default config)
+      return false
+    end
+    local context = require 'cmp.config.context'
+    return not (context.in_treesitter_capture 'comment' == true or context.in_syntax_group 'Comment')
+  end,
+  formatting = {
+    format = lspkind.cmp_format {
+      maxwidth = 50,
+      ellipsis_char = '...',
+    },
   },
 }
+
+-- null-ls
+local null_ls = require 'null-ls'
+
+local formatting = null_ls.builtins.formatting
+local diagnostics = null_ls.builtins.diagnostics
+
+-- to setup format on save
+local augroup = vim.api.nvim_create_augroup('LspFormatting', {})
+
+null_ls.setup {
+  sources = {
+    formatting.prettier,
+    formatting.stylua,
+  },
+  -- configure format on save
+  on_attach = function(current_client, bufnr)
+    if current_client.supports_method 'textDocument/formatting' then
+      vim.api.nvim_clear_autocmds { group = augroup, buffer = bufnr }
+      vim.api.nvim_create_autocmd('BufWritePre', {
+        group = augroup,
+        buffer = bufnr,
+        callback = function()
+          vim.lsp.buf.format {
+            filter = function(client)
+              --  only use null-ls for formatting instead of lsp server
+              return client.name == 'null-ls'
+            end,
+            bufnr = bufnr,
+          }
+        end,
+      })
+    end
+  end,
+}
+
+-- autopairs
+local autopairs = require 'nvim-autopairs'
+
+autopairs.setup {
+  check_ts = true, -- enable tresitter
+  ts_config = {
+    lua = { 'string' }, -- son't add pairs in lua string tresitter nodes
+    javascript = { 'template_string' }, -- above for js template_string
+    java = false, -- don't check treesitter on java
+  },
+}
+
+-- import nvim-autopairs completion functionality safely
+local cmp_autopairs_setup, cmp_autopairs = pcall(require, 'nvim-autopairs.completion.cmp')
+if not cmp_autopairs_setup then
+  return
+end
+
+-- make autopairs and completion work together
+cmp.event:on('confirm_done', cmp_autopairs.on_confirm_done())
+
+-- nvim-lastplace
+require('nvim-lastplace').setup {
+  lastplace_ignore_buftype = { 'quickfix', 'nofile', 'help' },
+  lastplace_ignore_filetype = { 'gitcommit', 'gitrebase', 'svn', 'hgcommit' },
+  lastplace_open_folds = true,
+}
+
+-- Neotree
+vim.keymap.set('n', '<leader>nt', ':NeoTreeShowToggle<CR>', { desc = 'Toggle Neotree' }) -- open Neotree
 
 -- The line beneath this is called `modeline`. See `:help modeline`
 -- vim: ts=2 sts=2 sw=2 et
